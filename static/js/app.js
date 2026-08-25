@@ -1,137 +1,156 @@
-const IP_RANGE_START = 1;
-const IP_RANGE_END = 255;
-const LOCAL_NETWORK_PREFIX = '';
+// CCTV IP Viewer - Simple Sequential Scan & Manual IP
+// Scans 192.168.1.1 through 192.168.1.255
 
 let scanning = false;
 let cameras = [];
 let streamIntervals = {};
+let scannedIps = [];
 
-document.getElementById('btnScan').addEventListener('click', initScan);
-
-async function initScan() {
-    const btn = document.getElementById('btnScan');
+document.addEventListener('DOMContentLoaded', function() {
+    const scanBtn = document.getElementById('btnScan');
     const progressBar = document.getElementById('progressBar');
-    const status = document.querySelector('.status-idle');
+    const statusDiv = document.getElementById('status');
     const camerasSection = document.getElementById('camerasSection');
     const camerasGrid = document.getElementById('camerasGrid');
+    const manualSection = document.getElementById('manualSection');
+    const manualIpInput = document.getElementById('manualIpInput');
+    const addManualBtn = document.getElementById('addManualBtn');
 
-    scanning = true;
-    btn.disabled = true;
-    btn.textContent = 'Scanning...';
-    progressBar.style.display = 'block';
-    status.textContent = 'Scanning local network...';
-    camerasGrid.innerHTML = '';
+    if (!scanBtn) return;
 
-    cameras = [];
-    Object.values(streamIntervals).forEach(clearInterval);
-    streamIntervals = {};
+    scanBtn.addEventListener('click', startScan);
+    if (addManualBtn) addManualBtn.addEventListener('click', addManualCamera);
 
-    // Get local network prefix (assume 192.168.1.x, will adapt)
-    const netInfo = await getLocalNetworkInfo();
-    LOCAL_NETWORK_PREFIX = netInfo.prefix;
-
-    // Show scanning progress
-    for (let i = 1; i <= IP_RANGE_END; i++) {
-        if (!scanning) break;
-        const ip = `${LOCAL_NETWORK_PREFIX}${i}`;
-        await checkCamera(ip);
-        progressBar.style.width = `${(i / IP_RANGE_END) * 100}%`;
-    }
-
-    scanning = false;
-    btn.disabled = false;
-    btn.textContent = 'Scan Network';
-
-    if (cameras.length === 0) {
-        status.textContent = 'No cameras found. Enter IP manually:';
-        camerasSection.style.display = 'none';
-        return;
-    }
-
-    status.textContent = `Found ${cameras.length} camera(s)`;
-    camerasSection.style.display = 'block';
-
-    renderCameras(camerasGrid);
-}
-
-async function getLocalNetworkInfo() {
-    // Try to determine local network prefix
-    // First try using a simple approach - get the first non-loopback IP
-    let prefix = '192.168.1'; // Default assumption
-    
-    try {
-        // Use fetch to get network info via a simple approach
-        // We'll assume 192.168.1.x but detect the actual prefix
-        const response = await fetch('https://ifconfig.me/json', { 
-            method: 'GET', 
-            timeout: 3000 
-        });
-        if (response.ok) {
-            const data = await response.json();
-            const ip = data.ip;
-            if (ip && ip.startsWith('192.168.')) {
-                const parts = ip.split('.');
-                return { prefix: `${parts[0]}.${parts[1]}.${parts[2]}` };
-            }
+    // Show manual section after 20s if no cameras found
+    setTimeout(function() {
+        if (isScanning && cameras.length === 0) {
+            statusDiv.textContent = 'No cameras detected scanning automatically';
+            manualSection.style.display = 'block';
+            scanBtn.style.display = 'none';
         }
-    } catch (e) {
-        // Fall back to default
-    }
-    
-    return { prefix: '192.168.1' };
-}
+    }, 20000);
 
-async function checkCamera(ip) {
-    try {
-        // Quick port 80/8080/554 check for camera HTTP/RTP
-        const httpResponses = await Promise.race([
-            fetch(`http://${ip}/`, { method: 'GET', timeout: 500, mode: 'no-cors' }),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 500))
-        ]);
-        
-        // If we get here without timeout, camera might be there
-        // But let's also try a simple GET to common camera paths
-        try {
-            await fetch(`http://${ip}:8080/video`, { method: 'GET', timeout: 300, mode: 'no-cors' });
-        } catch (e) {
-            // Ignore - camera might not respond to this
+    function startScan() {
+        if (scanning) return;
+        scanning = true;
+        scanBtn.disabled = true;
+        scanBtn.textContent = 'Scanning...';
+        progressBar.style.display = 'block';
+        statusDiv.textContent = 'Scanning network...';
+        camerasGrid.innerHTML = '';
+        cameras = [];
+        Object.values(streamIntervals).forEach(c => clearInterval(c));
+        streamIntervals = {};
+        scannedIps = [];
+
+        scanIP(1);
+    }
+
+    function scanIP(ipNum) {
+        if (ipNum > 255) {
+            // Scan complete
+            scanning = false;
+            scanBtn.disabled = false;
+            scanBtn.textContent = 'Scan Network';
+            statusDiv.textContent = 'Scan complete - found ' + cameras.length + ' camera(s)';
+            camerasSection.style.display = 'block';
+            return;
         }
-        
+
+        const ip = '192.168.1.' + ipNum;
+        scannedIps.push(ip);
+        progressBar.style.width = ((ipNum / 255) * 100) + '%';
+        statusDiv.textContent = 'Checking ' + ip + '...';
+
+        // Quick check this IP
+        checkIP(ip, ipNum);
+    }
+
+    function checkIP(ip, ipNum) {
         // Try common camera URLs
-        const urls = [
-            `http://${ip}:80/stream`,
-            `http://${ip}:80/mjpeg/1`, 
-            `http://${ip}:80/video`,
-            `http://${ip}:8080/stream`,
-            `http://${ip}:8080/mjpg`,
-            `http://${ip}:554/stream`
+        const testUrls = [
+            'http://' + ip + '/',
+            'http://' + ip + ':8080/',
+            'http://' + ip + ':80/',
+            'http://' + ip + '/video',
+            'http://' + ip + ':8080/video'
         ];
-        
-        for (const url of urls) {
-            if (!scanning) break;
-            try {
-                const resp = await fetch(url, { method: 'GET', timeout: 300, mode: 'no-cors' });
-                // Even if it fails, if we get a response, consider it a camera
-                cameras.push({ ip, url, name: `Camera ${cameras.length + 1}` });
-                break;
-            } catch (e) {
-                // Continue to next URL
+
+        let urlIndex = 0;
+        function tryNextUrl() {
+            if (urlIndex >= testUrls.length) {
+                // Done with this IP, move to next
+                setTimeout(function() { scanIP(ipNum + 1); }, 30);
+                return;
             }
+
+            const url = testUrls[urlIndex];
+            urlIndex++;
+
+            // Quick fetch with 300ms timeout
+            fetch(url, { method: 'GET', mode: 'no-cors', cache: 'no-cache', signal: AbortSignal.timeout(300) })
+                .then(function(resp) {
+                    // Even 404 means server is responding, could be camera
+                    if (resp.status === 404 || resp.ok) {
+                        // Found potential camera
+                        const cameraName = 'Camera ' + (cameras.length + 1) + ' (' + ip + ')';
+                        cameras.push({
+                            ip: ip,
+                            url: url,
+                            name: cameraName
+                        });
+
+                        // Start streaming immediately
+                        startStream(cameras.length - 1, url);
+
+                        // Show in UI
+                        addCameraToUI(cameras.length - 1);
+                    }
+
+                    // Continue to next URL or next IP
+                    setTimeout(tryNextUrl, 100);
+                })
+                .catch(function(e) {
+                    // Timeout/error, try next URL
+                    setTimeout(tryNextUrl, 100);
+                });
         }
-    } catch (e) {
-        // Camera not responding - skip
-    }
-}
 
-function renderCameras(grid) {
-    if (cameras.length === 0) {
-        grid.innerHTML = '<div class="no-cameras">No cameras detected</div>';
-        return;
+        tryNextUrl();
     }
 
-    grid.innerHTML = '';
+    function startStream(index, url) {
+        const video = document.getElementById('video' + index);
+        const statusDiv = document.getElementById('status' + index);
 
-    cameras.forEach((cam, index) => {
+        if (streamIntervals[index]) {
+            clearInterval(streamIntervals[index]);
+        }
+
+        video.src = url + '?rand=' + Date.now();
+
+        video.oncanplaythrough = function() {
+            statusDiv.textContent = 'Live';
+            video.play();
+
+            // Keep-alive every 3 minutes to prevent disconnection
+            streamIntervals[index] = setInterval(function() {
+                video.src = url + '?rand=' + Date.now();
+            }, 180000);
+        };
+
+        video.onerror = function() {
+            statusDiv.textContent = 'Connecting...';
+        };
+
+        video.onabort = function() {
+            video.src = url + '?rand=' + Date.now();
+            video.play();
+        };
+    }
+
+    function addCameraToUI(index) {
+        const cam = cameras[index];
         const card = document.createElement('div');
         card.className = 'camera-card';
         card.innerHTML = `
@@ -142,60 +161,41 @@ function renderCameras(grid) {
             </div>
             <div class="controls">
                 <span class="camera-name">${cam.name}</span>
-                <span class="stream-status" id="streamStatus${index}">Offline</span>
+                <span class="stream-status">Offline</span>
             </div>
         `;
-        grid.appendChild(card);
+        camerasGrid.appendChild(card);
 
-        // Start streaming
-        startCameraStream(index, cam.url);
-    });
-}
-
-function startCameraStream(index, url) {
-    const video = document.getElementById(`video${index}`);
-    const statusDiv = document.getElementById(`status${index}`);
-    const streamStatus = document.getElementById(`streamStatus${index}`);
-    
-    // Stop any existing interval for this camera
-    if (streamIntervals[index]) {
-        clearInterval(streamIntervals[index]);
+        // Start stream
+        setTimeout(function() {
+            startStream(index, cam.url);
+        }, 200);
     }
-    
-    // Create new video stream
-    const videoSrc = new URL(url);
-    video.src = url + '?t=' + Date.now();
-    
-    video.oncanplaythrough = () => {
-        statusDiv.textContent = 'Live';
-        streamStatus.textContent = 'Online';
-        video.play();
-        
-        // Start keep-alive interval - refresh every 3 minutes to prevent disconnect
-        streamIntervals[index] = setInterval(() => {
-            video.src = url + '?t=' + Date.now();
-        }, 180000); // 3 minutes
-    };
-    
-    video.onerror = () => {
-        statusDiv.textContent = 'Error';
-        streamStatus.textContent = 'Offline';
-    };
-    
-    video.onabort = () => {
-        // Stream was aborted, try to reconnect
-        video.src = url + '?t=' + Date.now();
-        video.play();
-    };
-}
 
-// Auto-reconnect handling - keep streams alive
-setInterval(() => {
-    cameras.forEach((cam, index) => {
-        const video = document.getElementById(`video${index}`);
-        if (video && video.readyState < 2) {
-            video.src = cam.url + '?t=' + Date.now();
-            video.play();
+    // Add manual camera
+    function addManualCamera() {
+        const ip = manualIpInput.value.trim();
+
+        if (ip && ip.match(/^192\.168\.\d+$/)) {
+            const url = 'http://' + ip + '/';
+            const cameraName = 'Manual Camera ' + (cameras.length + 1);
+
+            cameras.push({
+                ip: ip,
+                url: url,
+                name: cameraName
+            });
+
+            startStream(cameras.length - 1, url);
+            addCameraToUI(cameras.length - 1);
+
+            manualIpInput.value = '';
+            manualSection.style.display = 'none';
+            scanBtn.style.display = 'inline-block';
+
+            statusDiv.textContent = 'Added manual camera: ' + ip;
+        } else {
+            alert('Please enter valid IP: 192.168.1.xxx');
         }
-    });
-}, 15000); // Check every 15 seconds
+    }
+});
