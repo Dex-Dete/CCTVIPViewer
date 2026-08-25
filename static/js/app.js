@@ -1,201 +1,214 @@
-// CCTV IP Viewer - Simple Sequential Scan & Manual IP
-// Scans 192.168.1.1 through 192.168.1.255
+// Hikvision DVR Viewer
 
 let scanning = false;
-let cameras = [];
-let streamIntervals = {};
-let scannedIps = [];
+let currentDvr = null;
+let refreshTimers = [];
 
-document.addEventListener('DOMContentLoaded', function() {
-    const scanBtn = document.getElementById('btnScan');
-    const progressBar = document.getElementById('progressBar');
-    const statusDiv = document.getElementById('status');
-    const camerasSection = document.getElementById('camerasSection');
-    const camerasGrid = document.getElementById('camerasGrid');
-    const manualSection = document.getElementById('manualSection');
-    const manualIpInput = document.getElementById('manualIpInput');
-    const addManualBtn = document.getElementById('addManualBtn');
+document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('btnScan').addEventListener('click', scanDvrs);
+    document.getElementById('connectBtn').addEventListener('click', connectDvr);
+    document.getElementById('dvrIpInput').addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') connectDvr();
+    });
+    loadSavedDvrs();
+});
 
-    if (!scanBtn) return;
+async function loadSavedDvrs() {
+    try {
+        const response = await fetch('/api/dvrs', { cache: 'no-cache' });
+        if (!response.ok) throw new Error('Server returned ' + response.status);
+        renderDvrList(await response.json(), 'Saved DVRs');
+    } catch (error) {
+        setStatus('Start the local server with start.bat or python scripts/server.py.');
+        console.error(error);
+    }
+}
 
-    scanBtn.addEventListener('click', startScan);
-    if (addManualBtn) addManualBtn.addEventListener('click', addManualCamera);
+async function scanDvrs() {
+    if (scanning) return;
+    scanning = true;
+    setScanControls(true);
+    setStatus('Scanning for Hikvision DVR/NVR devices...');
+    setProgress(35);
 
-    // Show manual section after 20s if no cameras found
-    setTimeout(function() {
-        if (isScanning && cameras.length === 0) {
-            statusDiv.textContent = 'No cameras detected scanning automatically';
-            manualSection.style.display = 'block';
-            scanBtn.style.display = 'none';
-        }
-    }, 20000);
+    try {
+        const response = await fetch('/api/scan', { cache: 'no-cache' });
+        if (!response.ok) throw new Error('Scan failed with status ' + response.status);
+        const dvrs = await response.json();
+        setProgress(100);
+        setStatus(dvrs.length ? 'Found ' + dvrs.length + ' Hikvision DVR/NVR device(s).' : 'No Hikvision DVR found. Type the DVR IP manually.');
+        renderDvrList(dvrs, 'Detected DVRs');
+    } catch (error) {
+        setStatus('Scan failed: ' + error.message);
+        console.error(error);
+    } finally {
+        scanning = false;
+        setScanControls(false);
+    }
+}
 
-    function startScan() {
-        if (scanning) return;
-        scanning = true;
-        scanBtn.disabled = true;
-        scanBtn.textContent = 'Scanning...';
-        progressBar.style.display = 'block';
-        statusDiv.textContent = 'Scanning network...';
-        camerasGrid.innerHTML = '';
-        cameras = [];
-        Object.values(streamIntervals).forEach(c => clearInterval(c));
-        streamIntervals = {};
-        scannedIps = [];
+async function connectDvr() {
+    const payload = {
+        ip: document.getElementById('dvrIpInput').value.trim(),
+        port: document.getElementById('dvrPortInput').value || '80',
+        username: document.getElementById('usernameInput').value.trim() || 'admin',
+        password: document.getElementById('passwordInput').value
+    };
 
-        scanIP(1);
+    if (!isValidIp(payload.ip)) {
+        alert('Please enter a valid DVR IP address, for example 192.168.1.4');
+        return;
     }
 
-    function scanIP(ipNum) {
-        if (ipNum > 255) {
-            // Scan complete
-            scanning = false;
-            scanBtn.disabled = false;
-            scanBtn.textContent = 'Scan Network';
-            statusDiv.textContent = 'Scan complete - found ' + cameras.length + ' camera(s)';
-            camerasSection.style.display = 'block';
-            return;
-        }
+    setStatus('Connecting to DVR ' + payload.ip + '...');
+    document.getElementById('connectBtn').disabled = true;
 
-        const ip = '192.168.1.' + ipNum;
-        scannedIps.push(ip);
-        progressBar.style.width = ((ipNum / 255) * 100) + '%';
-        statusDiv.textContent = 'Checking ' + ip + '...';
+    try {
+        const response = await fetch('/api/dvr/connect', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Login failed');
 
-        // Quick check this IP
-        checkIP(ip, ipNum);
+        currentDvr = result.dvr;
+        renderChannels(result.channels || []);
+        setStatus('Connected to ' + (currentDvr.device_name || currentDvr.ip) + '.');
+    } catch (error) {
+        setStatus('DVR connection failed: ' + error.message);
+        console.error(error);
+    } finally {
+        document.getElementById('connectBtn').disabled = false;
+    }
+}
+
+function renderDvrList(dvrs, title) {
+    const container = document.getElementById('dvrList');
+    if (!dvrs.length) {
+        container.innerHTML = '';
+        return;
     }
 
-    function checkIP(ip, ipNum) {
-        // Try common camera URLs
-        const testUrls = [
-            'http://' + ip + '/',
-            'http://' + ip + ':8080/',
-            'http://' + ip + ':80/',
-            'http://' + ip + '/video',
-            'http://' + ip + ':8080/video'
-        ];
+    container.innerHTML = `<h3>${escapeHtml(title)}</h3>`;
+    dvrs.forEach((dvr) => {
+        const button = document.createElement('button');
+        button.className = 'dvr-chip';
+        button.type = 'button';
+        button.innerHTML = `
+            <strong>${escapeHtml(dvr.ip)}:${escapeHtml(dvr.port || '80')}</strong>
+            <span>${escapeHtml(dvr.device_name || dvr.model || 'Hikvision DVR/NVR')}</span>
+        `;
+        button.addEventListener('click', () => {
+            document.getElementById('dvrIpInput').value = dvr.ip;
+            document.getElementById('dvrPortInput').value = dvr.port || '80';
+            setStatus('Selected DVR ' + dvr.ip + '. Enter password if the default does not work.');
+        });
+        container.appendChild(button);
+    });
+}
 
-        let urlIndex = 0;
-        function tryNextUrl() {
-            if (urlIndex >= testUrls.length) {
-                // Done with this IP, move to next
-                setTimeout(function() { scanIP(ipNum + 1); }, 30);
-                return;
-            }
+function renderChannels(channels) {
+    clearRefreshTimers();
+    const grid = document.getElementById('channelsGrid');
+    const title = document.getElementById('dvrTitle');
+    title.textContent = currentDvr.device_name ? currentDvr.device_name + ' Channels' : 'DVR Channels';
+    grid.innerHTML = '';
 
-            const url = testUrls[urlIndex];
-            urlIndex++;
-
-            // Quick fetch with 300ms timeout
-            fetch(url, { method: 'GET', mode: 'no-cors', cache: 'no-cache', signal: AbortSignal.timeout(300) })
-                .then(function(resp) {
-                    // Even 404 means server is responding, could be camera
-                    if (resp.status === 404 || resp.ok) {
-                        // Found potential camera
-                        const cameraName = 'Camera ' + (cameras.length + 1) + ' (' + ip + ')';
-                        cameras.push({
-                            ip: ip,
-                            url: url,
-                            name: cameraName
-                        });
-
-                        // Start streaming immediately
-                        startStream(cameras.length - 1, url);
-
-                        // Show in UI
-                        addCameraToUI(cameras.length - 1);
-                    }
-
-                    // Continue to next URL or next IP
-                    setTimeout(tryNextUrl, 100);
-                })
-                .catch(function(e) {
-                    // Timeout/error, try next URL
-                    setTimeout(tryNextUrl, 100);
-                });
-        }
-
-        tryNextUrl();
+    if (!channels.length) {
+        grid.innerHTML = '<div class="no-cameras">Connected, but no channels were returned by the DVR.</div>';
+        return;
     }
 
-    function startStream(index, url) {
-        const video = document.getElementById('video' + index);
-        const statusDiv = document.getElementById('status' + index);
-
-        if (streamIntervals[index]) {
-            clearInterval(streamIntervals[index]);
-        }
-
-        video.src = url + '?rand=' + Date.now();
-
-        video.oncanplaythrough = function() {
-            statusDiv.textContent = 'Live';
-            video.play();
-
-            // Keep-alive every 3 minutes to prevent disconnection
-            streamIntervals[index] = setInterval(function() {
-                video.src = url + '?rand=' + Date.now();
-            }, 180000);
-        };
-
-        video.onerror = function() {
-            statusDiv.textContent = 'Connecting...';
-        };
-
-        video.onabort = function() {
-            video.src = url + '?rand=' + Date.now();
-            video.play();
-        };
-    }
-
-    function addCameraToUI(index) {
-        const cam = cameras[index];
-        const card = document.createElement('div');
+    channels.forEach((channel, index) => {
+        const card = document.createElement('article');
         card.className = 'camera-card';
+        const imageUrl = '/api/dvr/snapshot?ip=' + encodeURIComponent(currentDvr.ip) + '&channel=' + encodeURIComponent(channel.id);
         card.innerHTML = `
-            <div class="camera-header">${cam.name}</div>
+            <div class="camera-header">
+                <span>${escapeHtml(channel.name || 'Camera ' + (index + 1))}</span>
+                <span>CH ${escapeHtml(channel.id)}</span>
+            </div>
             <div class="camera-container">
-                <video class="camera-feed" id="video${index}" autoplay playsinline></video>
-                <div class="camera-status" id="status${index}">Connecting...</div>
+                <img class="camera-frame" id="channel${index}" alt="${escapeHtml(channel.name || 'Camera')}" src="">
+                <div class="camera-status" id="status${index}">Loading</div>
             </div>
             <div class="controls">
-                <span class="camera-name">${cam.name}</span>
-                <span class="stream-status">Offline</span>
+                <span class="camera-url">${escapeHtml(currentDvr.ip)} / ${escapeHtml(channel.id)}</span>
+                <button class="link-button" type="button" data-index="${index}">Refresh</button>
             </div>
         `;
-        camerasGrid.appendChild(card);
+        grid.appendChild(card);
+        startChannelRefresh(index, imageUrl);
+    });
 
-        // Start stream
-        setTimeout(function() {
-            startStream(index, cam.url);
-        }, 200);
-    }
+    grid.querySelectorAll('.link-button').forEach((button) => {
+        button.addEventListener('click', () => refreshChannel(Number(button.dataset.index)));
+    });
+}
 
-    // Add manual camera
-    function addManualCamera() {
-        const ip = manualIpInput.value.trim();
+function startChannelRefresh(index, imageUrl) {
+    const image = document.getElementById('channel' + index);
+    const status = document.getElementById('status' + index);
 
-        if (ip && ip.match(/^192\.168\.\d+$/)) {
-            const url = 'http://' + ip + '/';
-            const cameraName = 'Manual Camera ' + (cameras.length + 1);
+    image.dataset.baseUrl = imageUrl;
+    image.addEventListener('load', () => {
+        status.textContent = 'Live';
+    });
+    image.addEventListener('error', () => {
+        status.textContent = 'No snapshot';
+    });
 
-            cameras.push({
-                ip: ip,
-                url: url,
-                name: cameraName
-            });
+    refreshChannel(index);
+    refreshTimers.push(window.setInterval(() => refreshChannel(index), 2000));
+}
 
-            startStream(cameras.length - 1, url);
-            addCameraToUI(cameras.length - 1);
+function refreshChannel(index) {
+    const image = document.getElementById('channel' + index);
+    const status = document.getElementById('status' + index);
+    if (!image) return;
+    status.textContent = 'Refreshing';
+    image.src = image.dataset.baseUrl + '&t=' + Date.now();
+}
 
-            manualIpInput.value = '';
-            manualSection.style.display = 'none';
-            scanBtn.style.display = 'inline-block';
+function setStatus(text) {
+    document.getElementById('status').textContent = text;
+}
 
-            statusDiv.textContent = 'Added manual camera: ' + ip;
-        } else {
-            alert('Please enter valid IP: 192.168.1.xxx');
-        }
-    }
-});
+function setProgress(percent) {
+    document.getElementById('progressBar').style.width = percent + '%';
+}
+
+function setScanControls(active) {
+    const scanBtn = document.getElementById('btnScan');
+    const progress = document.querySelector('.progress-bar');
+    scanBtn.disabled = active;
+    scanBtn.textContent = active ? 'Scanning...' : 'Scan Hikvision DVRs';
+    progress.style.display = active ? 'block' : 'none';
+    if (!active) window.setTimeout(() => setProgress(0), 800);
+}
+
+function clearRefreshTimers() {
+    refreshTimers.forEach((timer) => window.clearInterval(timer));
+    refreshTimers = [];
+}
+
+function isValidIp(value) {
+    const parts = value.split('.');
+    if (parts.length !== 4) return false;
+    return parts.every((part) => {
+        if (!/^\d+$/.test(part)) return false;
+        const number = Number(part);
+        return number >= 0 && number <= 255;
+    });
+}
+
+function escapeHtml(value) {
+    return String(value).replace(/[&<>"']/g, (char) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+    }[char]));
+}

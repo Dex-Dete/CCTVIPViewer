@@ -1,0 +1,2 @@
+ip,port,username,password,device_name,model,serial_number,channel_count,last_connected
+192.168.1.4,80,admin,Admin@123,PerthA119,iDS-7208HUHI-M1/S,iDS-7208HUHI-M1/S0820210302CCWRF60687682WCVU,8,2026-08-25T21:28:15

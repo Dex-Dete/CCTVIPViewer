@@ -1,10 +1,13 @@
-# CCTV IP Viewer
+# Hikvision DVR Viewer
 
-A lightweight, easy-to-use CCTV monitoring application that works on local networks.
+A lightweight Hikvision DVR/NVR viewer for local networks.
 
 ## Features
 
-- **Network Scanning**: Automatically scans your local network (192.168.1.1-255) to detect CCTV cameras
+- **Hikvision DVR Scan**: Scans the local subnet for Hikvision DVR/NVR web interfaces
+- **Manual DVR IP Entry**: Connect directly to a known DVR IP such as `192.168.1.4`
+- **DVR Login**: Tries the default `admin` / `Admin@123` first, then accepts the password you enter
+- **Channel Viewer**: Loads the DVR/NVR channel list and shows each camera channel through the local server
 - **Multi-device Access**: Access your CCTV feeds from any device on the same network (phone, tablet, PC, iPhone)
 - **Beautiful UI**: Clean, responsive interface optimized for all screen sizes
 - **Continuous Streaming**: Keeps cameras alive with automatic reconnection every 3 minutes
@@ -16,8 +19,9 @@ A lightweight, easy-to-use CCTV monitoring application that works on local netwo
 1. **Run install.bat** - Will set up everything automatically
 2. **Run start.bat** - Starts the local server in background
 3. **Open browser** - Go to `http://localhost:8080` or use your PC's local IP address
-4. **Scan network** - Click "Scan Network" to detect cameras
-5. **View feeds** - All detected cameras will start streaming automatically
+4. **Scan network** - Click "Scan Hikvision DVRs" to detect DVR/NVR devices
+5. **Connect manually if needed** - Enter the DVR IP, username, and password
+6. **View feeds** - The app loads the DVR channels and refreshes each camera snapshot
 
 ## Requirements
 
@@ -28,10 +32,12 @@ A lightweight, easy-to-use CCTV monitoring application that works on local netwo
 
 ## How It Works
 
-1. **Network Scanning**: The app pings IP addresses in your local range and checks for common camera ports (80, 8080, 554)
-2. **Stream Delivery**: Uses MJPEG streaming via HTML5 video elements
+1. **DVR Discovery**: The Python server checks local IPs for Hikvision ISAPI endpoints
+2. **Authentication**: The server logs in to the DVR using HTTP Basic/Digest authentication
+3. **Channel Loading**: The app reads `/ISAPI/Streaming/channels` from the DVR
+4. **Feed Display**: The browser loads snapshots through `/api/dvr/snapshot`, so credentials stay on the local server
 3. **Keep-Alive Mechanism**: Automatically refreshes streams every 3 minutes to prevent disconnection
-4. **Configuration**: Saves camera IPs and credentials to `camera_config.csv` for future use
+5. **Configuration**: Saves DVR IP and credentials to `dvr_config.csv` for future local use
 
 ## Optimization for Low-RAM Systems
 
@@ -56,7 +62,7 @@ CCTVIPViewer/
 ├── index.html          # Main web interface
 ├── static/css/styles.css  # Styling
 ├── static/js/app.js     # Application logic
-├── scripts/server.py    # Python HTTP server
+├── scripts/server.py    # Python HTTP server and Hikvision ISAPI bridge
 ├── install.bat          # Installation script
 ├── start.bat            # Start server script
 ├── stop.bat             # Stop server script
@@ -69,7 +75,7 @@ CCTVIPViewer/
 - **Username**: admin
 - **Password**: Admin@123
 
-These are saved permanently after first configuration.
+If that password is wrong, enter the real DVR password and click Connect.
 
 ## License
 

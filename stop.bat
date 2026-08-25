@@ -1,31 +1,25 @@
 @echo off
-title CCTV IP Viewer - Server Stopping
+setlocal
+title CCTV IP Viewer - Server Stop
+cd /d "%~dp0"
+
 echo.
 echo ==========================================
 echo  Stopping CCTV IP Viewer Server
 echo ==========================================
 echo.
 
-; Kill the Python server process
-echo Stopping server process...
-taskkill /f /im python.exe >nul 2>&1
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$procs = Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*scripts\server.py*' -or $_.CommandLine -like '*scripts/server.py*' }; if (-not $procs) { exit 2 }; $procs | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }; exit 0"
 
 if %errorlevel% equ 0 (
-    echo [OK] Server process stopped.
+    echo [OK] CCTV server process stopped.
 ) else (
-    echo [INFO] No Python process found running.
+    echo [INFO] No CCTV server process found.
 )
-
-; Also try killing by command line
-echo.
-echo Attempting cleanup...
-del /f /q cctv_server.log 2>nul
 
 echo.
 echo ==========================================
 echo  Server stopped.
 echo ==========================================
-echo.
-echo  To restart, run start.bat
 echo.
 pause

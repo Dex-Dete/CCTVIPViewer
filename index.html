@@ -3,44 +3,65 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CCTV IP Viewer</title>
+    <title>Hikvision DVR Viewer</title>
     <link rel="icon" href="data:,">
     <link rel="stylesheet" href="static/css/styles.css">
 </head>
 <body>
     <div class="container">
         <header>
-            <h1><img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 24 24' fill='currentColor'%3E%3Cpath d='M19 13h-6v6h-2v-6H5c-1.1 0-2-.9-2-2V5c0-1.1.9-2 2-2h6v2H12v6H5v2h14v-2h-5v6z'/%3E%3C/svg%3E" alt="CCTV"></h1>
-            <h2>CCTV IP Viewer</h2>
+            <h1>Hikvision DVR Viewer</h1>
+            <p>Find the DVR, connect once, then view its camera channels.</p>
         </header>
 
-        <div class="main-content">
-            <div class="scan-section">
-                <h3>Network Scanner</h3>
-                <p>Scanning your local network for CCTV cameras...</p>
-                <div class="status-idle">Idle - Click Scan to begin</div>
-                <button class="btn-scan" id="btnScan">Scan Network</button>
-                <button class="btn-manual" id="btnManual" style="display:none; margin-left:10px;">Add IP Manually</button>
-                <div class="progress-bar">
-                    <div class="progress" id="progressBar" style="width: 0%"></div>
+        <main class="main-content">
+            <section class="scan-section">
+                <div class="section-title">
+                    <div>
+                        <h2>DVR Scanner</h2>
+                        <p id="status">Ready</p>
+                    </div>
+                    <button class="btn primary" id="btnScan" type="button">Scan Hikvision DVRs</button>
                 </div>
-            </div>
+                <div class="progress-bar" aria-hidden="true">
+                    <div class="progress" id="progressBar"></div>
+                </div>
+                <div class="dvr-list" id="dvrList"></div>
+            </section>
 
-            <div id="manual-section" style="display:none; margin-top:20px; padding:15px; background:#f0f0f0; border-radius:5;">
-                <h4>Add Camera Manually</h4>
-                <input type="text" id="manualIpInput" placeholder="Enter IP (e.g., 192.168.1.100)" style="width:70%; padding:5px;"/>
-                <button onclick="addManualCamera()" style="margin-left:10px; padding:5px 10px;">Add</button>
-                <small>Format: 192.168.1.xxx</small>
-            </div>
+            <section class="connect-section">
+                <h2>Connect To DVR</h2>
+                <div class="connect-grid">
+                    <label>
+                        <span>DVR IP address</span>
+                        <input type="text" id="dvrIpInput" inputmode="numeric" placeholder="192.168.1.4" value="192.168.1.4">
+                    </label>
+                    <label>
+                        <span>HTTP port</span>
+                        <input type="number" id="dvrPortInput" min="1" max="65535" value="80">
+                    </label>
+                    <label>
+                        <span>Username</span>
+                        <input type="text" id="usernameInput" autocomplete="username" value="admin">
+                    </label>
+                    <label>
+                        <span>Password</span>
+                        <input type="password" id="passwordInput" autocomplete="current-password" placeholder="Try default if empty">
+                    </label>
+                    <button class="btn secondary" id="connectBtn" type="button">Connect</button>
+                </div>
+            </section>
 
-            <div class="cameras-section" id="camerasSection" style="display: none;">
-                <h3>Detected Cameras</h3>
-                <div class="cameras-grid" id="camerasGrid"></div>
-            </div>
-        </div>
+            <section class="dvr-section" id="dvrSection">
+                <h2 id="dvrTitle">DVR Channels</h2>
+                <div class="cameras-grid" id="channelsGrid">
+                    <div class="no-cameras">Connect to the Hikvision DVR to load its channels.</div>
+                </div>
+            </section>
+        </main>
 
         <footer>
-            <p>CCTV IP Viewer - Local Network Monitoring</p>
+            <p>Hikvision DVR Viewer - Local Network Monitoring</p>
         </footer>
     </div>
 
